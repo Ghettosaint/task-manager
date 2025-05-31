@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { supabase } from '../../lib/supabase'
 import { Plus, Trash2, Check, Calendar, Clock, AlertTriangle, Settings, Repeat, Copy, CalendarPlus, ExternalLink, LogOut, User } from 'lucide-react'
-import NotificationSettings from './NotificationSettings'
+import NotificationSettings from './NotificationSettings.js'
 
 export default function TaskManager() {
   const { data: session, status } = useSession()
