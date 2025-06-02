@@ -1,13 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSession, signIn, signOut } from 'next-auth/react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Check, Calendar, Clock, AlertTriangle, Settings, Repeat, Copy, CalendarPlus, ExternalLink, LogOut, User } from 'lucide-react'
+import { Plus, Trash2, Check, Calendar, Clock, AlertTriangle, Settings, Repeat, Copy } from 'lucide-react'
 import NotificationSettings from './NotificationSettings.js'
 
 export default function TaskManager() {
-  const { data: session, status } = useSession()
   const [tasks, setTasks] = useState([])
   const [newTask, setNewTask] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
@@ -20,23 +18,17 @@ export default function TaskManager() {
   const [monthlyDay, setMonthlyDay] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
-  const [calendarLoading, setCalendarLoading] = useState({})
 
   useEffect(() => {
-    if (session?.userId) {
-      loadTasks()
-      generateRecurringTasks()
-    } else if (status !== 'loading') {
-      setLoading(false)
-    }
-  }, [session, status])
+    loadTasks()
+    generateRecurringTasks()
+  }, [])
 
   async function loadTasks() {
     try {
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
-        .eq('user_id', session.userId)
         .order('due_date', { ascending: true, nullsLast: true })
       
       if (error) throw error
@@ -54,7 +46,6 @@ export default function TaskManager() {
         .from('tasks')
         .select('*')
         .eq('is_recurring', true)
-        .eq('user_id', session.userId)
         .is('parent_task_id', null)
       
       if (error) throw error
@@ -96,8 +87,7 @@ export default function TaskManager() {
           priority: parentTask.priority,
           status: 'pending',
           is_recurring: false,
-          parent_task_id: parentTask.id,
-          user_id: session.userId
+          parent_task_id: parentTask.id
         })
       }
 
@@ -165,8 +155,7 @@ export default function TaskManager() {
         description: newDescription.trim() || null,
         status: 'pending',
         priority: newPriority,
-        is_recurring: isRecurring,
-        user_id: session.userId
+        is_recurring: isRecurring
       }
 
       if (newDueDate) {
@@ -196,80 +185,6 @@ export default function TaskManager() {
       resetForm()
     } catch (error) {
       alert('Error adding task: ' + error.message)
-    }
-  }
-
-  async function createCalendarEvent(taskId) {
-    setCalendarLoading({ ...calendarLoading, [taskId]: true })
-    
-    try {
-      const task = tasks.find(t => t.id === taskId)
-      if (!task.due_date) {
-        alert('Task needs a due date to create a calendar event')
-        return
-      }
-
-      const response = await fetch('/api/calendar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create',
-          taskId: taskId,
-          eventData: {
-            startTime: task.due_date,
-            endTime: new Date(new Date(task.due_date).getTime() + 60*60*1000).toISOString()
-          }
-        })
-      })
-
-      const result = await response.json()
-      
-      if (result.success) {
-        setTasks(tasks.map(t => 
-          t.id === taskId 
-            ? { ...t, google_event_id: result.eventId }
-            : t
-        ))
-        alert('Calendar event created successfully!')
-      } else {
-        throw new Error(result.error)
-      }
-    } catch (error) {
-      alert('Failed to create calendar event: ' + error.message)
-    } finally {
-      setCalendarLoading({ ...calendarLoading, [taskId]: false })
-    }
-  }
-
-  async function deleteCalendarEvent(taskId) {
-    setCalendarLoading({ ...calendarLoading, [taskId]: true })
-    
-    try {
-      const response = await fetch('/api/calendar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'delete',
-          taskId: taskId
-        })
-      })
-
-      const result = await response.json()
-      
-      if (result.success) {
-        setTasks(tasks.map(t => 
-          t.id === taskId 
-            ? { ...t, google_event_id: null }
-            : t
-        ))
-        alert('Calendar event deleted successfully!')
-      } else {
-        throw new Error(result.error)
-      }
-    } catch (error) {
-      alert('Failed to delete calendar event: ' + error.message)
-    } finally {
-      setCalendarLoading({ ...calendarLoading, [taskId]: false })
     }
   }
 
@@ -428,41 +343,6 @@ export default function TaskManager() {
     }
   }
 
-  // Show login screen if not authenticated
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
-      </div>
-    )
-  }
-
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md w-full mx-4">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <Calendar size={48} className="mx-auto mb-4 text-blue-600" />
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Task Manager</h1>
-            <p className="text-gray-600 mb-6">
-              Sign in with Google to manage your tasks and sync with Google Calendar
-            </p>
-            <button
-              onClick={() => signIn('google')}
-              className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
-            >
-              <User size={20} />
-              Sign in with Google
-            </button>
-            <p className="text-xs text-gray-500 mt-4">
-              This will allow us to create calendar events for your tasks
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -480,7 +360,7 @@ export default function TaskManager() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">My Task Manager</h1>
-            <p className="text-sm text-gray-600">Welcome back, {session.user?.email}</p>
+            <p className="text-sm text-gray-600">Stay organized and never miss important tasks</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -489,13 +369,6 @@ export default function TaskManager() {
               title="Notification Settings"
             >
               <Settings size={24} />
-            </button>
-            <button
-              onClick={() => signOut()}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
-              title="Sign Out"
-            >
-              <LogOut size={24} />
             </button>
           </div>
         </div>
@@ -771,45 +644,12 @@ export default function TaskManager() {
                     )}
                   </div>
                   
-                  {/* Calendar Integration Buttons */}
-                  <div className="flex items-center gap-2">
-                    {task.due_date && (
-                      task.google_event_id ? (
-                        <button
-                          onClick={() => deleteCalendarEvent(task.id)}
-                          disabled={calendarLoading[task.id]}
-                          className="p-1 text-green-600 hover:text-red-600 disabled:opacity-50"
-                          title="Remove from Google Calendar"
-                        >
-                          {calendarLoading[task.id] ? (
-                            <Clock size={16} className="animate-spin" />
-                          ) : (
-                            <ExternalLink size={16} />
-                          )}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => createCalendarEvent(task.id)}
-                          disabled={calendarLoading[task.id]}
-                          className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-50"
-                          title="Add to Google Calendar"
-                        >
-                          {calendarLoading[task.id] ? (
-                            <Clock size={16} className="animate-spin" />
-                          ) : (
-                            <CalendarPlus size={16} />
-                          )}
-                        </button>
-                      )
-                    )}
-                    
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      className="p-1 text-gray-400 hover:text-red-600"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => deleteTask(task.id)}
+                    className="flex-shrink-0 p-1 text-gray-400 hover:text-red-600"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
             ))
