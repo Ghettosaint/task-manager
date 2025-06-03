@@ -1,0 +1,10 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#2563eb"/>
+  <rect x="128" y="128" width="256" height="32" rx="16" fill="white"/>
+  <rect x="128" y="208" width="256" height="32" rx="16" fill="white"/>
+  <rect x="128" y="288" width="192" height="32" rx="16" fill="white"/>
+  <circle cx="96" cy="144" r="12" fill="white"/>
+  <circle cx="96" cy="224" r="12" fill="white"/>
+  <circle cx="96" cy="304" r="12" fill="white"/>
+  <text x="256" y="400" text-anchor="middle" fill="white" font-family="Arial" font-size="48" font-weight="bold">TASKS</text>
+</svg>
