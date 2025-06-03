@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase'
+import { supabase } from '../../../../lib/supabase'
 import { Resend } from 'resend'
 import { Vonage } from '@vonage/server-sdk'
 
