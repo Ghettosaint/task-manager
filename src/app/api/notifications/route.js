@@ -20,7 +20,7 @@ export async function POST(request) {
       phone: process.env.DEFAULT_PHONE || '',
       email_notifications: true,
       sms_notifications: true,
-      reminder_times: [1440, 60]
+      reminder_times: [1440, 60] // 24 hours and 1 hour before
     }
 
     if (!notificationSettings.email && !notificationSettings.phone) {
@@ -42,81 +42,105 @@ export async function POST(request) {
     let notificationsSent = 0
     const now = new Date()
     
-    console.log(`Current time (UTC): ${now.toISOString()}`)
-    console.log(`Current time (EEST): ${new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString()}`)
-    console.log(`Found ${tasks.length} pending tasks with due dates`)
+    console.log(`Checking ${tasks.length} pending tasks at ${now.toISOString()}`)
 
     // Check each task for notification triggers
     for (const task of tasks) {
-      // Assume task due_date is in EEST (UTC+3), adjust for server UTC time
       const dueDate = new Date(task.due_date)
-      const dueDateUTC = new Date(dueDate.getTime() - 3 * 60 * 60 * 1000) // Convert EEST to UTC
+      const minutesUntilDue = (dueDate.getTime() - now.getTime()) / (1000 * 60)
       
-      console.log(`Checking task: ${task.title}`)
-      console.log(`  Stored due date: ${dueDate.toISOString()}`)
-      console.log(`  Adjusted to UTC: ${dueDateUTC.toISOString()}`)
+      console.log(`Task: ${task.title}, Due: ${dueDate.toISOString()}, Minutes until due: ${minutesUntilDue}`)
       
-      for (const reminderMinutes of notificationSettings.reminder_times) {
-        const reminderTime = new Date(dueDateUTC.getTime() - (reminderMinutes * 60 * 1000))
-        const timeDiff = Math.abs(now.getTime() - reminderTime.getTime())
-        const hoursUntilDue = (dueDateUTC.getTime() - now.getTime()) / (1000 * 60 * 60)
-        const shouldSend = sendNow || testMode || (hoursUntilDue > 0 && hoursUntilDue <= 24)
-        
-        console.log(`  Reminder ${reminderMinutes}min: reminderTime=${reminderTime.toISOString()}, timeDiff=${Math.round(timeDiff/60000)}min, shouldSend=${shouldSend}`)
-    
-        if (shouldSend) {
-          const hoursUntilDue = Math.round((dueDateUTC.getTime() - now.getTime()) / (1000 * 60 * 60))
-          const dueText = hoursUntilDue > 0 ? `in ${hoursUntilDue} hours` : hoursUntilDue === 0 ? 'today' : 'overdue'
+      // Check which notification should be sent
+      let shouldSendNotification = false
+      let notificationType = ''
+      
+      if (sendNow || testMode) {
+        shouldSendNotification = true
+        notificationType = 'test'
+      } else {
+        // Check each reminder time
+        for (const reminderMinutes of notificationSettings.reminder_times) {
+          // Check if we haven't already sent this reminder
+          const lastNotificationKey = `last_notification_${task.id}_${reminderMinutes}`
+          const lastNotificationTime = task[lastNotificationKey]
           
-          // Send email notification
-          if (notificationSettings.email_notifications && notificationSettings.email) {
-            try {
-              const emailResult = await resend.emails.send({
-                from: 'TaskApp <noreply@resend.dev>',
-                to: [notificationSettings.email],
-                subject: `Task Reminder: ${task.title}`,
-                html: `
-                  <div style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h2 style="color: #2563eb;">📋 Task Reminder</h2>
-                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                      <h3 style="margin: 0; color: #1e293b;">${task.title}</h3>
-                      <p style="margin: 10px 0; color: #64748b;">
-                        ${task.description || 'No description provided'}
-                      </p>
-                      <p style="margin: 0; font-weight: bold; color: ${hoursUntilDue <= 0 ? '#dc2626' : '#2563eb'};">
-                        Due: ${dueText}
-                      </p>
-                    </div>
-                    <p style="color: #64748b; font-size: 14px;">
-                      Don't forget to complete this task!
+          // Window for sending notifications (5 minutes before and after the exact time)
+          const reminderWindowStart = reminderMinutes - 5
+          const reminderWindowEnd = reminderMinutes + 5
+          
+          if (minutesUntilDue >= reminderWindowStart && minutesUntilDue <= reminderWindowEnd) {
+            // Check if we haven't sent this notification recently (within last hour)
+            if (!lastNotificationTime || new Date(lastNotificationTime) < new Date(now.getTime() - 60 * 60 * 1000)) {
+              shouldSendNotification = true
+              notificationType = reminderMinutes === 0 ? 'due' : `${reminderMinutes}min`
+              
+              // Update the last notification time
+              await supabase
+                .from('tasks')
+                .update({ [lastNotificationKey]: now.toISOString() })
+                .eq('id', task.id)
+              
+              break
+            }
+          }
+        }
+      }
+      
+      if (shouldSendNotification) {
+        const hoursUntilDue = Math.round(minutesUntilDue / 60)
+        const dueText = minutesUntilDue <= 0 ? 'overdue' : 
+                       minutesUntilDue < 60 ? `in ${Math.round(minutesUntilDue)} minutes` :
+                       hoursUntilDue < 24 ? `in ${hoursUntilDue} hours` :
+                       `in ${Math.round(hoursUntilDue / 1440)} days`
+        
+        // Send email notification
+        if (notificationSettings.email_notifications && notificationSettings.email) {
+          try {
+            const emailResult = await resend.emails.send({
+              from: 'TaskApp <noreply@resend.dev>',
+              to: [notificationSettings.email],
+              subject: `Task Reminder: ${task.title}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px;">
+                  <h2 style="color: #2563eb;">📋 Task Reminder</h2>
+                  <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <h3 style="margin: 0; color: #1e293b;">${task.title}</h3>
+                    <p style="margin: 10px 0; color: #64748b;">
+                      ${task.description || 'No description provided'}
+                    </p>
+                    <p style="margin: 0; font-weight: bold; color: ${minutesUntilDue <= 0 ? '#dc2626' : '#2563eb'};">
+                      Due: ${dueText}
                     </p>
                   </div>
-                `,
-                text: `Task Reminder: ${task.title}\n\n${task.description || ''}\n\nDue: ${dueText}`
-              })
-              console.log(`Email sent for task: ${task.title}`, emailResult)
-            } catch (emailError) {
-              console.error('Email error details:', emailError.message, emailError)
-            }
+                  <p style="color: #64748b; font-size: 14px;">
+                    Don't forget to complete this task!
+                  </p>
+                </div>
+              `,
+              text: `Task Reminder: ${task.title}\n\n${task.description || ''}\n\nDue: ${dueText}`
+            })
+            console.log(`Email sent for task: ${task.title} (${notificationType})`)
+          } catch (emailError) {
+            console.error('Email error:', emailError.message)
           }
-
-          // Send SMS notification
-          if (notificationSettings.sms_notifications && notificationSettings.phone) {
-            try {
-              const smsResult = await vonage.sms.send({
-                to: notificationSettings.phone.replace(/[^\d+]/g, ''),
-                from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
-                text: `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
-              })
-              console.log(`SMS sent for task: ${task.title}`, smsResult)
-            } catch (smsError) {
-              console.error('SMS error details:', smsError.message, smsError)
-            }
-          }
-
-          notificationsSent++
-          break // Only send one notification per task
         }
+
+        // Send SMS notification
+        if (notificationSettings.sms_notifications && notificationSettings.phone) {
+          try {
+            const smsResult = await vonage.sms.send({
+              to: notificationSettings.phone.replace(/[^\d+]/g, ''),
+              from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
+              text: `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
+            })
+            console.log(`SMS sent for task: ${task.title} (${notificationType})`)
+          } catch (smsError) {
+            console.error('SMS error:', smsError.message)
+          }
+        }
+
+        notificationsSent++
       }
     }
 
@@ -126,7 +150,7 @@ export async function POST(request) {
       notificationsSent,
       message: testMode ? 
         `Test completed - ${notificationsSent} notifications sent` : 
-        `${notificationsSent} notifications sent`
+        `Checked ${tasks.length} tasks, sent ${notificationsSent} notifications`
     })
 
   } catch (error) {
@@ -135,9 +159,24 @@ export async function POST(request) {
   }
 }
 
+// This will be called by Vercel Cron
 export async function GET() {
+  console.log('Cron job triggered at:', new Date().toISOString())
+  
+  // Load settings from your default environment variables
+  const settings = {
+    email: process.env.DEFAULT_EMAIL || '',
+    phone: process.env.DEFAULT_PHONE || '',
+    email_notifications: true,
+    sms_notifications: true,
+    reminder_times: [1440, 60, 0] // 24 hours, 1 hour, and at due time
+  }
+  
   return POST(new Request('', { 
     method: 'POST', 
-    body: JSON.stringify({ testMode: false }) 
+    body: JSON.stringify({ 
+      testMode: false,
+      settings: settings 
+    }) 
   }))
 }
