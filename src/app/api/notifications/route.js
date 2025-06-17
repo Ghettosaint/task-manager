@@ -41,11 +41,15 @@ export async function POST(request) {
 
     let notificationsSent = 0
     const now = new Date()
+    
+    console.log(`Current time (UTC): ${now.toISOString()}`)
+    console.log(`Current time (EEST): ${new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString()}`)
+    console.log(`Found ${tasks.length} pending tasks with due dates`)
 
     // Check each task for notification triggers
     for (const task of tasks) {
       const dueDate = new Date(task.due_date)
-      console.log(`Checking task: ${task.title}, due: ${dueDate.toISOString()}`)
+      console.log(`Checking task: ${task.title}, due: ${dueDate.toISOString()} (stored), due EEST: ${new Date(dueDate.getTime() + 3 * 60 * 60 * 1000).toISOString()}`)
       
       for (const reminderMinutes of notificationSettings.reminder_times) {
         const reminderTime = new Date(dueDate.getTime() - (reminderMinutes * 60 * 1000))
@@ -61,8 +65,8 @@ export async function POST(request) {
           // Send email notification
           if (notificationSettings.email_notifications && notificationSettings.email) {
             try {
-              await resend.emails.send({
-                from: process.env.FROM_EMAIL || 'noreply@yourdomain.com',
+              const emailResult = await resend.emails.send({
+                from: 'TaskApp <noreply@resend.dev>',
                 to: [notificationSettings.email],
                 subject: `Task Reminder: ${task.title}`,
                 html: `
@@ -84,23 +88,23 @@ export async function POST(request) {
                 `,
                 text: `Task Reminder: ${task.title}\n\n${task.description || ''}\n\nDue: ${dueText}`
               })
-              console.log(`Email sent for task: ${task.title}`)
+              console.log(`Email sent for task: ${task.title}`, emailResult)
             } catch (emailError) {
-              console.error('Email error:', emailError)
+              console.error('Email error details:', emailError.message, emailError)
             }
           }
 
           // Send SMS notification
           if (notificationSettings.sms_notifications && notificationSettings.phone) {
             try {
-              await vonage.sms.send({
+              const smsResult = await vonage.sms.send({
                 to: notificationSettings.phone.replace(/[^\d+]/g, ''),
                 from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
                 text: `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
               })
-              console.log(`SMS sent for task: ${task.title}`)
+              console.log(`SMS sent for task: ${task.title}`, smsResult)
             } catch (smsError) {
-              console.error('SMS error:', smsError)
+              console.error('SMS error details:', smsError.message, smsError)
             }
           }
 
