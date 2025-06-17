@@ -20,7 +20,7 @@ export async function POST(request) {
       phone: process.env.DEFAULT_PHONE || '',
       email_notifications: true,
       sms_notifications: true,
-      reminder_times: [1440, 60] // 24 hours and 1 hour before
+      reminder_times: [1440, 60, 0] // 24 hours, 1 hour, and at due time
     }
 
     if (!notificationSettings.email && !notificationSettings.phone) {
@@ -53,34 +53,33 @@ export async function POST(request) {
       
       // Check which notification should be sent
       let shouldSendNotification = false
-      let notificationType = ''
+      let reminderMinutes = null
       
       if (sendNow || testMode) {
         shouldSendNotification = true
-        notificationType = 'test'
+        // Find the most appropriate reminder time for test
+        reminderMinutes = notificationSettings.reminder_times.find(mins => 
+          minutesUntilDue >= mins - 5
+        ) || 0
       } else {
         // Check each reminder time
-        for (const reminderMinutes of notificationSettings.reminder_times) {
-          // Check if we haven't already sent this reminder
-          const lastNotificationKey = `last_notification_${task.id}_${reminderMinutes}`
-          const lastNotificationTime = task[lastNotificationKey]
-          
-          // Window for sending notifications (5 minutes before and after the exact time)
-          const reminderWindowStart = reminderMinutes - 5
-          const reminderWindowEnd = reminderMinutes + 5
+        for (const mins of notificationSettings.reminder_times) {
+          // Window for sending notifications (15 minutes window)
+          const reminderWindowStart = mins - 15
+          const reminderWindowEnd = mins + 15
           
           if (minutesUntilDue >= reminderWindowStart && minutesUntilDue <= reminderWindowEnd) {
-            // Check if we haven't sent this notification recently (within last hour)
-            if (!lastNotificationTime || new Date(lastNotificationTime) < new Date(now.getTime() - 60 * 60 * 1000)) {
+            // Check if we've already sent this notification
+            const { data: existingNotification } = await supabase
+              .from('task_notifications')
+              .select('id')
+              .eq('task_id', task.id)
+              .eq('reminder_minutes', mins)
+              .single()
+            
+            if (!existingNotification) {
               shouldSendNotification = true
-              notificationType = reminderMinutes === 0 ? 'due' : `${reminderMinutes}min`
-              
-              // Update the last notification time
-              await supabase
-                .from('tasks')
-                .update({ [lastNotificationKey]: now.toISOString() })
-                .eq('id', task.id)
-              
+              reminderMinutes = mins
               break
             }
           }
@@ -92,7 +91,9 @@ export async function POST(request) {
         const dueText = minutesUntilDue <= 0 ? 'overdue' : 
                        minutesUntilDue < 60 ? `in ${Math.round(minutesUntilDue)} minutes` :
                        hoursUntilDue < 24 ? `in ${hoursUntilDue} hours` :
-                       `in ${Math.round(hoursUntilDue / 1440)} days`
+                       `in ${Math.round(minutesUntilDue / 1440)} days`
+        
+        let notificationTypes = []
         
         // Send email notification
         if (notificationSettings.email_notifications && notificationSettings.email) {
@@ -120,7 +121,8 @@ export async function POST(request) {
               `,
               text: `Task Reminder: ${task.title}\n\n${task.description || ''}\n\nDue: ${dueText}`
             })
-            console.log(`Email sent for task: ${task.title} (${notificationType})`)
+            notificationTypes.push('email')
+            console.log(`Email sent for task: ${task.title}`)
           } catch (emailError) {
             console.error('Email error:', emailError.message)
           }
@@ -134,10 +136,24 @@ export async function POST(request) {
               from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
               text: `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
             })
-            console.log(`SMS sent for task: ${task.title} (${notificationType})`)
+            notificationTypes.push('sms')
+            console.log(`SMS sent for task: ${task.title}`)
           } catch (smsError) {
             console.error('SMS error:', smsError.message)
           }
+        }
+
+        // Record that we sent this notification (unless in test mode)
+        if (!testMode && notificationTypes.length > 0 && reminderMinutes !== null) {
+          await supabase
+            .from('task_notifications')
+            .upsert({
+              task_id: task.id,
+              reminder_minutes: reminderMinutes,
+              notification_type: notificationTypes.join(',')
+            }, {
+              onConflict: 'task_id,reminder_minutes'
+            })
         }
 
         notificationsSent++
