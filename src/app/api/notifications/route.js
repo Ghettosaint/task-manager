@@ -48,18 +48,23 @@ export async function POST(request) {
 
     // Check each task for notification triggers
     for (const task of tasks) {
+      // Assume task due_date is in EEST (UTC+3), adjust for server UTC time
       const dueDate = new Date(task.due_date)
-      console.log(`Checking task: ${task.title}, due: ${dueDate.toISOString()} (stored), due EEST: ${new Date(dueDate.getTime() + 3 * 60 * 60 * 1000).toISOString()}`)
+      const dueDateUTC = new Date(dueDate.getTime() - 3 * 60 * 60 * 1000) // Convert EEST to UTC
+      
+      console.log(`Checking task: ${task.title}`)
+      console.log(`  Stored due date: ${dueDate.toISOString()}`)
+      console.log(`  Adjusted to UTC: ${dueDateUTC.toISOString()}`)
       
       for (const reminderMinutes of notificationSettings.reminder_times) {
-        const reminderTime = new Date(dueDate.getTime() - (reminderMinutes * 60 * 1000))
+        const reminderTime = new Date(dueDateUTC.getTime() - (reminderMinutes * 60 * 1000))
         const timeDiff = Math.abs(now.getTime() - reminderTime.getTime())
         const shouldSend = sendNow || testMode || timeDiff <= 30 * 60 * 1000 // 30 minute window
         
-        console.log(`Reminder ${reminderMinutes}min: reminderTime=${reminderTime.toISOString()}, timeDiff=${Math.round(timeDiff/60000)}min, shouldSend=${shouldSend}`)
-
+        console.log(`  Reminder ${reminderMinutes}min: reminderTime=${reminderTime.toISOString()}, timeDiff=${Math.round(timeDiff/60000)}min, shouldSend=${shouldSend}`)
+    
         if (shouldSend) {
-          const hoursUntilDue = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60))
+          const hoursUntilDue = Math.round((dueDateUTC.getTime() - now.getTime()) / (1000 * 60 * 60))
           const dueText = hoursUntilDue > 0 ? `in ${hoursUntilDue} hours` : hoursUntilDue === 0 ? 'today' : 'overdue'
           
           // Send email notification
