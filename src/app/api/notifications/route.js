@@ -12,7 +12,7 @@ const vonage = new Vonage({
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { testMode = false, settings } = body
+    const { testMode = false, settings, sendNow = false } = body
 
     // Get notification settings with defaults
     let notificationSettings = settings || {
@@ -45,11 +45,14 @@ export async function POST(request) {
     // Check each task for notification triggers
     for (const task of tasks) {
       const dueDate = new Date(task.due_date)
+      console.log(`Checking task: ${task.title}, due: ${dueDate.toISOString()}`)
       
       for (const reminderMinutes of notificationSettings.reminder_times) {
         const reminderTime = new Date(dueDate.getTime() - (reminderMinutes * 60 * 1000))
         const timeDiff = Math.abs(now.getTime() - reminderTime.getTime())
-        const shouldSend = testMode || timeDiff <= 5 * 60 * 1000
+        const shouldSend = sendNow || testMode || timeDiff <= 30 * 60 * 1000 // 30 minute window
+        
+        console.log(`Reminder ${reminderMinutes}min: reminderTime=${reminderTime.toISOString()}, timeDiff=${Math.round(timeDiff/60000)}min, shouldSend=${shouldSend}`)
 
         if (shouldSend) {
           const hoursUntilDue = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60))
