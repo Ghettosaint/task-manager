@@ -59,7 +59,8 @@ export async function POST(request) {
       for (const reminderMinutes of notificationSettings.reminder_times) {
         const reminderTime = new Date(dueDateUTC.getTime() - (reminderMinutes * 60 * 1000))
         const timeDiff = Math.abs(now.getTime() - reminderTime.getTime())
-        const shouldSend = sendNow || testMode || timeDiff <= 30 * 60 * 1000 // 30 minute window
+        const hoursUntilDue = (dueDateUTC.getTime() - now.getTime()) / (1000 * 60 * 60)
+        const shouldSend = sendNow || testMode || (hoursUntilDue > 0 && hoursUntilDue <= 24)
         
         console.log(`  Reminder ${reminderMinutes}min: reminderTime=${reminderTime.toISOString()}, timeDiff=${Math.round(timeDiff/60000)}min, shouldSend=${shouldSend}`)
     
