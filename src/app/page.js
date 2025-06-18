@@ -2,75 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, Check, Calendar, Clock, AlertTriangle, Settings, Repeat, Copy, List, ChevronLeft, ChevronRight, Bell, BellOff } from 'lucide-react'
-
-// Mock supabase for demo - replace with your actual supabase import
-const supabase = {
-  from: (table) => ({
-    select: (fields) => ({
-      eq: (field, value) => ({
-        order: (field, options) => ({
-          then: (callback) => {
-            // Mock data for demo
-            const mockTasks = [
-              {
-                id: 1,
-                title: 'Morning call with team',
-                description: 'Discuss project updates',
-                due_date: '2025-01-20T08:00:00',
-                priority: 2,
-                status: 'pending',
-                is_recurring: false,
-                notifications_enabled: true
-              },
-              {
-                id: 2,
-                title: 'Post new article',
-                description: 'Publish the blog post about productivity',
-                due_date: '2025-01-20T09:00:00',
-                priority: 3,
-                status: 'pending',
-                is_recurring: false,
-                notifications_enabled: true
-              },
-              {
-                id: 3,
-                title: 'Lunch meeting',
-                description: 'Meet with client',
-                due_date: '2025-01-20T12:30:00',
-                priority: 1,
-                status: 'pending',
-                is_recurring: false,
-                notifications_enabled: false
-              }
-            ]
-            setTimeout(() => callback({ data: mockTasks, error: null }), 100)
-          }
-        })
-      })
-    }),
-    insert: (data) => ({
-      select: () => ({
-        then: (callback) => {
-          setTimeout(() => callback({ data: [{ id: Date.now(), ...data[0] }], error: null }), 100)
-        }
-      })
-    }),
-    update: (data) => ({
-      eq: (field, value) => ({
-        then: (callback) => {
-          setTimeout(() => callback({ error: null }), 100)
-        }
-      })
-    }),
-    delete: () => ({
-      eq: (field, value) => ({
-        then: (callback) => {
-          setTimeout(() => callback({ error: null }), 100)
-        }
-      })
-    })
-  })
-}
+import { supabase } from '../../lib/supabase'
 
 export default function TaskManager() {
   const [tasks, setTasks] = useState([])
