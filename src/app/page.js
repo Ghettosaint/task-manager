@@ -51,14 +51,16 @@ export default function TaskManager() {
         taskData.due_date = new Date(newDueDate).toISOString()
       }
 
-      const newTaskWithId = { id: Date.now(), ...taskData }
-      setTasks(prevTasks => [...prevTasks, newTaskWithId].sort((a, b) => {
-        if (!a.due_date && !b.due_date) return 0
-        if (!a.due_date) return 1
-        if (!b.due_date) return -1
-        return new Date(a.due_date) - new Date(b.due_date)
-      }))
+      // Save to Supabase
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([taskData])
+        .select()
+
+      if (error) throw error
       
+      // Reload tasks from database
+      await loadTasks()
       resetForm()
     } catch (error) {
       alert('Error adding task: ' + error.message)
@@ -76,23 +78,56 @@ export default function TaskManager() {
   async function toggleTask(taskId, currentStatus) {
     const newStatus = currentStatus === 'completed' ? 'pending' : 'completed'
     
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, status: newStatus }
-        : task
-    ))
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status: newStatus })
+        .eq('id', taskId)
+
+      if (error) throw error
+
+      setTasks(tasks.map(task => 
+        task.id === taskId 
+          ? { ...task, status: newStatus }
+          : task
+      ))
+    } catch (error) {
+      alert('Error updating task: ' + error.message)
+    }
   }
 
   async function toggleNotifications(taskId, currentEnabled) {
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, notifications_enabled: !currentEnabled }
-        : task
-    ))
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ notifications_enabled: !currentEnabled })
+        .eq('id', taskId)
+
+      if (error) throw error
+
+      setTasks(tasks.map(task => 
+        task.id === taskId 
+          ? { ...task, notifications_enabled: !currentEnabled }
+          : task
+      ))
+    } catch (error) {
+      alert('Error updating notifications: ' + error.message)
+    }
   }
 
   async function deleteTask(taskId) {
-    setTasks(tasks.filter(task => task.id !== taskId))
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', taskId)
+
+      if (error) throw error
+
+      setTasks(tasks.filter(task => task.id !== taskId))
+    } catch (error) {
+      alert('Error deleting task: ' + error.message)
+    }
   }
 
   function formatDate(dateString) {
