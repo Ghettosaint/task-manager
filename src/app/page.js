@@ -21,15 +21,33 @@ export default function TaskManager() {
 
   async function loadTasks() {
     try {
+      console.log('Loading tasks from Supabase...')
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
         .order('due_date', { ascending: true, nullsLast: true })
       
-      if (error) throw error
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
+      
+      console.log('Tasks loaded:', data)
       setTasks(data || [])
     } catch (error) {
-      console.log('Error loading tasks:', error.message)
+      console.error('Error loading tasks:', error.message)
+      // For now, let's use mock data if Supabase fails
+      setTasks([
+        {
+          id: 1,
+          title: 'Sample Task',
+          description: 'This is a sample task',
+          status: 'pending',
+          priority: 2,
+          notifications_enabled: true,
+          due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }
+      ])
     } finally {
       setLoading(false)
     }
