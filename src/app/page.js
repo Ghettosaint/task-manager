@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, Check, Calendar, Clock, AlertTriangle, Settings, Repeat, Copy, List, ChevronLeft, ChevronRight, Bell, BellOff } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import NotificationSettings from './NotificationSettings'
 
 export default function TaskManager() {
   const [tasks, setTasks] = useState([])
@@ -14,6 +15,7 @@ export default function TaskManager() {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState('list')
   const [currentDate, setCurrentDate] = useState(new Date())
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false)
 
   useEffect(() => {
     loadTasks()
@@ -306,7 +308,10 @@ export default function TaskManager() {
               </button>
             </div>
             
-            <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg">
+            <button 
+              onClick={() => setShowNotificationSettings(true)}
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+            >
               <Settings size={24} />
             </button>
           </div>
