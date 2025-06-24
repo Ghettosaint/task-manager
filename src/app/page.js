@@ -264,6 +264,12 @@ export default function TaskManager() {
     })
   }
 
+  // Function to handle settings button click
+  function handleSettingsClick() {
+    console.log('Settings button clicked!')
+    setShowNotificationSettings(true)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -309,8 +315,9 @@ export default function TaskManager() {
             </div>
             
             <button 
-              onClick={() => setShowNotificationSettings(true)}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+              onClick={handleSettingsClick}
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg border bg-white shadow-sm transition-colors"
+              title="Notification Settings"
             >
               <Settings size={24} />
             </button>
@@ -596,6 +603,12 @@ export default function TaskManager() {
           </div>
         )}
       </div>
+
+      {/* Notification Settings Modal */}
+      <NotificationSettings
+        isOpen={showNotificationSettings}
+        onClose={() => setShowNotificationSettings(false)}
+      />
     </div>
   )
 }
