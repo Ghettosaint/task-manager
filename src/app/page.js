@@ -319,7 +319,7 @@ export default function TaskManager() {
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
               placeholder="What do you need to do?"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
             />
             
             <textarea
@@ -327,7 +327,7 @@ export default function TaskManager() {
               onChange={(e) => setNewDescription(e.target.value)}
               placeholder="Description (optional)"
               rows={2}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
             />
             
             <div className="flex gap-3">
@@ -339,7 +339,7 @@ export default function TaskManager() {
                   type="datetime-local"
                   value={newDueDate}
                   onChange={(e) => setNewDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                 />
               </div>
               
@@ -350,7 +350,7 @@ export default function TaskManager() {
                 <select
                   value={newPriority}
                   onChange={(e) => setNewPriority(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                 >
                   <option value={1}>Low</option>
                   <option value={2}>Medium</option>
