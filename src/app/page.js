@@ -16,6 +16,13 @@ export default function TaskManager() {
   const [viewMode, setViewMode] = useState('list')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [showNotificationSettings, setShowNotificationSettings] = useState(false)
+  
+  // New recurring task states
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurrenceType, setRecurrenceType] = useState('daily')
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1)
+  const [recurrenceDays, setRecurrenceDays] = useState([])
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('')
 
   useEffect(() => {
     loadTasks()
@@ -64,11 +71,19 @@ export default function TaskManager() {
         description: newDescription.trim() || null,
         status: 'pending',
         priority: newPriority,
-        notifications_enabled: notificationsEnabled
+        notifications_enabled: notificationsEnabled,
+        is_recurring: isRecurring,
+        recurrence_type: isRecurring ? recurrenceType : null,
+        recurrence_interval: isRecurring ? recurrenceInterval : null,
+        recurrence_days: isRecurring && recurrenceDays.length > 0 ? JSON.stringify(recurrenceDays) : null,
+        recurrence_end_date: isRecurring && recurrenceEndDate ? new Date(recurrenceEndDate).toISOString() : null
       }
 
       if (newDueDate) {
         taskData.due_date = new Date(newDueDate).toISOString()
+        if (isRecurring) {
+          taskData.next_due_date = calculateNextDueDate(new Date(newDueDate), recurrenceType, recurrenceInterval, recurrenceDays)
+        }
       }
 
       // Save to Supabase
@@ -87,12 +102,53 @@ export default function TaskManager() {
     }
   }
 
+  function calculateNextDueDate(currentDue, type, interval, days) {
+    const nextDue = new Date(currentDue)
+    
+    switch (type) {
+      case 'daily':
+        nextDue.setDate(nextDue.getDate() + interval)
+        break
+      case 'weekly':
+        nextDue.setDate(nextDue.getDate() + (interval * 7))
+        break
+      case 'monthly':
+        nextDue.setMonth(nextDue.getMonth() + interval)
+        break
+      case 'yearly':
+        nextDue.setFullYear(nextDue.getFullYear() + interval)
+        break
+      case 'custom':
+        if (days && days.length > 0) {
+          // Find next occurrence of the specified days
+          let foundNext = false
+          let daysChecked = 0
+          while (!foundNext && daysChecked < 14) { // Check up to 2 weeks ahead
+            nextDue.setDate(nextDue.getDate() + 1)
+            const dayName = nextDue.toLocaleDateString('en-US', { weekday: 'lowercase' })
+            if (days.includes(dayName)) {
+              foundNext = true
+            }
+            daysChecked++
+          }
+        }
+        break
+    }
+    
+    return nextDue.toISOString()
+  }
+
   function resetForm() {
     setNewTask('')
     setNewDescription('')
     setNewDueDate('')
     setNewPriority(1)
     setNotificationsEnabled(true)
+    setIsRecurring(false)
+    setRecurrenceType('daily')
+    setRecurrenceInterval(1)
+    setRecurrenceDays([])
+    setRecurrenceEndDate('')
   }
 
   async function toggleTask(taskId, currentStatus) {
@@ -106,6 +162,14 @@ export default function TaskManager() {
 
       if (error) throw error
 
+      // If completing a recurring task, create next occurrence
+      if (newStatus === 'completed') {
+        const task = tasks.find(t => t.id === taskId)
+        if (task && task.is_recurring && task.next_due_date) {
+          await createNextRecurringTask(task)
+        }
+      }
+
       setTasks(tasks.map(task => 
         task.id === taskId 
           ? { ...task, status: newStatus }
@@ -113,6 +177,55 @@ export default function TaskManager() {
       ))
     } catch (error) {
       alert('Error updating task: ' + error.message)
+    }
+  }
+
+  async function createNextRecurringTask(originalTask) {
+    try {
+      const nextTaskData = {
+        title: originalTask.title,
+        description: originalTask.description,
+        status: 'pending',
+        priority: originalTask.priority,
+        notifications_enabled: originalTask.notifications_enabled,
+        is_recurring: true,
+        recurrence_type: originalTask.recurrence_type,
+        recurrence_interval: originalTask.recurrence_interval,
+        recurrence_days: originalTask.recurrence_days,
+        recurrence_end_date: originalTask.recurrence_end_date,
+        parent_task_id: originalTask.parent_task_id || originalTask.id,
+        due_date: originalTask.next_due_date
+      }
+
+      // Calculate the next due date after this one
+      const recurrenceDays = originalTask.recurrence_days ? JSON.parse(originalTask.recurrence_days) : []
+      nextTaskData.next_due_date = calculateNextDueDate(
+        new Date(originalTask.next_due_date), 
+        originalTask.recurrence_type, 
+        originalTask.recurrence_interval, 
+        recurrenceDays
+      )
+
+      // Check if we haven't passed the end date
+      if (originalTask.recurrence_end_date) {
+        const endDate = new Date(originalTask.recurrence_end_date)
+        const nextDue = new Date(nextTaskData.due_date)
+        if (nextDue > endDate) {
+          console.log('Recurring task has reached its end date')
+          return
+        }
+      }
+
+      const { error } = await supabase
+        .from('tasks')
+        .insert([nextTaskData])
+
+      if (error) throw error
+
+      // Reload tasks to show the new occurrence
+      await loadTasks()
+    } catch (error) {
+      console.error('Error creating next recurring task:', error)
     }
   }
 
@@ -147,6 +260,14 @@ export default function TaskManager() {
       setTasks(tasks.filter(task => task.id !== taskId))
     } catch (error) {
       alert('Error deleting task: ' + error.message)
+    }
+  }
+
+  function handleRecurrenceDayToggle(day) {
+    if (recurrenceDays.includes(day)) {
+      setRecurrenceDays(recurrenceDays.filter(d => d !== day))
+    } else {
+      setRecurrenceDays([...recurrenceDays, day])
     }
   }
 
@@ -371,6 +492,91 @@ export default function TaskManager() {
               </div>
             </div>
 
+            {/* Recurring Task Options */}
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="checkbox"
+                  id="recurring"
+                  checked={isRecurring}
+                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="recurring" className="flex items-center gap-1 text-sm font-medium text-gray-700">
+                  <Repeat size={16} />
+                  Make this a recurring task
+                </label>
+              </div>
+
+              {isRecurring && (
+                <div className="space-y-3 ml-6 p-3 bg-gray-50 rounded-lg">
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Repeat every
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={recurrenceInterval}
+                          onChange={(e) => setRecurrenceInterval(parseInt(e.target.value) || 1)}
+                          className="w-20 px-2 py-1 border border-gray-300 rounded text-gray-900"
+                        />
+                        <select
+                          value={recurrenceType}
+                          onChange={(e) => setRecurrenceType(e.target.value)}
+                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-gray-900"
+                        >
+                          <option value="daily">Day(s)</option>
+                          <option value="weekly">Week(s)</option>
+                          <option value="monthly">Month(s)</option>
+                          <option value="yearly">Year(s)</option>
+                          <option value="custom">Custom days</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        End date (optional)
+                      </label>
+                      <input
+                        type="date"
+                        value={recurrenceEndDate}
+                        onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-gray-900"
+                      />
+                    </div>
+                  </div>
+
+                  {recurrenceType === 'custom' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select days
+                      </label>
+                      <div className="flex gap-2 flex-wrap">
+                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => handleRecurrenceDayToggle(day)}
+                            className={`px-3 py-1 text-xs rounded border ${
+                              recurrenceDays.includes(day)
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-600'
+                            }`}
+                          >
+                            {day.charAt(0).toUpperCase() + day.slice(1, 3)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -463,6 +669,7 @@ export default function TaskManager() {
                                 {task.status === 'completed' && <Check size={8} />}
                               </button>
                               <span className="font-medium">{formatTime(task.due_date)}</span>
+                              {task.is_recurring && <Repeat size={8} className="text-purple-500" />}
                             </div>
                             
                             <div className="flex items-center gap-1">
@@ -548,6 +755,10 @@ export default function TaskManager() {
                           {task.title}
                         </span>
                         
+                        {task.is_recurring && (
+                          <Repeat size={16} className="text-purple-500" title="Recurring task" />
+                        )}
+                        
                         {task.priority > 1 && (
                           <span className={`text-xs font-medium ${getPriorityColor(task.priority)}`}>
                             {getPriorityLabel(task.priority)}
@@ -576,6 +787,18 @@ export default function TaskManager() {
                           {isOverdue(task.due_date) && task.status !== 'completed' && (
                             <span className="font-medium">- Overdue</span>
                           )}
+                        </div>
+                      )}
+
+                      {task.is_recurring && (
+                        <div className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                          <Repeat size={12} />
+                          <span>
+                            Repeats every {task.recurrence_interval} {task.recurrence_type}
+                            {task.recurrence_days && JSON.parse(task.recurrence_days).length > 0 && 
+                              ` on ${JSON.parse(task.recurrence_days).join(', ')}`
+                            }
+                          </span>
                         </div>
                       )}
                     </div>
