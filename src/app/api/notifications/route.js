@@ -4,6 +4,8 @@ import { Vonage } from '@vonage/server-sdk'
 
 // Initialize services
 const resend = new Resend(process.env.RESEND_API_KEY)
+
+// Initialize Vonage properly
 const vonage = new Vonage({
   apiKey: process.env.VONAGE_API_KEY,
   apiSecret: process.env.VONAGE_API_SECRET,
@@ -128,18 +130,32 @@ export async function POST(request) {
           }
         }
 
-        // Send SMS notification
+        // Send SMS notification - Fixed implementation
         if (notificationSettings.sms_notifications && notificationSettings.phone) {
           try {
+            // Clean the phone number - remove all non-digit characters except +
+            const cleanPhone = notificationSettings.phone.replace(/[^\d+]/g, '')
+            
+            // Ensure phone number starts with + for international format
+            const formattedPhone = cleanPhone.startsWith('+') ? cleanPhone : '+' + cleanPhone
+            
+            console.log(`Attempting to send SMS to: ${formattedPhone}`)
+            
+            const smsText = `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
+            
             const smsResult = await vonage.sms.send({
-              to: notificationSettings.phone.replace(/[^\d+]/g, ''),
+              to: formattedPhone,
               from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
-              text: `📋 Task Reminder: "${task.title}" is due ${dueText}. Don't forget to complete it!`
+              text: smsText
             })
+            
+            console.log('SMS result:', smsResult)
             notificationTypes.push('sms')
             console.log(`SMS sent for task: ${task.title}`)
           } catch (smsError) {
-            console.error('SMS error:', smsError.message)
+            console.error('SMS error details:', smsError)
+            console.error('SMS error message:', smsError.message)
+            // Continue with other notifications even if SMS fails
           }
         }
 
