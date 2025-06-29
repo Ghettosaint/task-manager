@@ -136,28 +136,46 @@ export async function POST(request) {
           }
         }
 
-        // Send SMS notification - Fixed implementation
+        // Send SMS notification - Improved implementation
         if (notificationSettings.sms_notifications && notificationSettings.phone) {
           try {
-            // Clean the phone number - remove all non-digit characters except +
-            const cleanPhone = notificationSettings.phone.replace(/[^\d+]/g, '')
+            // Clean and format the phone number
+            let cleanPhone = notificationSettings.phone.replace(/[^\d+]/g, '')
             
-            // Ensure phone number starts with + for international format
-            const formattedPhone = cleanPhone.startsWith('+') ? cleanPhone : '+' + cleanPhone
+            // Handle different phone number formats
+            if (!cleanPhone.startsWith('+')) {
+              // If no country code, assume it's a US number if it's 10 digits
+              if (cleanPhone.length === 10) {
+                cleanPhone = '+1' + cleanPhone
+              } else {
+                // Otherwise, add + prefix
+                cleanPhone = '+' + cleanPhone
+              }
+            }
             
-            console.log(`Attempting to send SMS to: ${formattedPhone}`)
+            console.log(`Attempting to send SMS to: ${cleanPhone}`)
             
             const smsText = `📋 Task Reminder: "${task.title}" is due ${dueText}. ${task.is_recurring ? '🔄 Recurring task. ' : ''}Don't forget to complete it!`
             
+            // Use the correct Vonage SMS send method
             const smsResult = await vonage.sms.send({
-              to: formattedPhone,
+              to: cleanPhone,
               from: process.env.VONAGE_FROM_NUMBER || 'TaskApp',
               text: smsText
             })
             
             console.log('SMS result:', smsResult)
-            notificationTypes.push('sms')
-            console.log(`SMS sent for task: ${task.title}`)
+            
+            // Check if SMS was sent successfully
+            if (smsResult && smsResult.messages && smsResult.messages[0]) {
+              const message = smsResult.messages[0]
+              if (message.status === '0') { // Status 0 means success
+                notificationTypes.push('sms')
+                console.log(`SMS sent successfully for task: ${task.title}`)
+              } else {
+                console.error(`SMS failed with status ${message.status}: ${message['error-text']}`)
+              }
+            }
           } catch (smsError) {
             console.error('SMS error details:', smsError)
             console.error('SMS error message:', smsError.message)
@@ -210,15 +228,26 @@ async function handleRecurringTasks() {
       .eq('is_recurring', true)
       .not('next_due_date', 'is', null)
 
-    if (!completedRecurringTasks) return
+    // Also get pending recurring tasks that might need next instances created
+    const { data: pendingRecurringTasks } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('status', 'pending')
+      .eq('is_recurring', true)
+      .not('next_due_date', 'is', null)
 
+    const allRecurringTasks = [...(completedRecurringTasks || []), ...(pendingRecurringTasks || [])]
     const now = new Date()
     
-    for (const task of completedRecurringTasks) {
+    console.log(`Found ${allRecurringTasks.length} recurring tasks to check`)
+    
+    for (const task of allRecurringTasks) {
       const nextDueDate = new Date(task.next_due_date)
       
-      // If the next due date is in the past or today, and we haven't created the next instance yet
+      // If the next due date has arrived or passed, create the next instance
       if (nextDueDate <= now) {
+        console.log(`Next due date reached for task: ${task.title}, creating next instance`)
+        
         // Check if we already created a task for this next due date
         const { data: existingNextTask } = await supabase
           .from('tasks')
@@ -230,36 +259,8 @@ async function handleRecurringTasks() {
         if (!existingNextTask) {
           // Create the next recurring task instance
           await createNextRecurringTask(task)
-        }
-      }
-    }
-
-    // Also check for pending recurring tasks that are overdue and need the next instance
-    const { data: overdueRecurringTasks } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('status', 'pending')
-      .eq('is_recurring', true)
-      .not('next_due_date', 'is', null)
-      .lt('due_date', now.toISOString())
-
-    if (overdueRecurringTasks) {
-      for (const task of overdueRecurringTasks) {
-        const nextDueDate = new Date(task.next_due_date)
-        
-        if (nextDueDate <= now) {
-          // Check if we already created a task for this next due date
-          const { data: existingNextTask } = await supabase
-            .from('tasks')
-            .select('id')
-            .eq('parent_task_id', task.parent_task_id || task.id)
-            .eq('due_date', task.next_due_date)
-            .single()
-
-          if (!existingNextTask) {
-            // Create the next recurring task instance
-            await createNextRecurringTask(task)
-          }
+        } else {
+          console.log(`Task instance already exists for ${task.title}`)
         }
       }
     }
@@ -298,7 +299,14 @@ function calculateNextDueDate(currentDue, type, interval, days) {
           }
           daysChecked++
         }
+      } else {
+        // If no custom days specified, default to daily
+        nextDue.setDate(nextDue.getDate() + interval)
       }
+      break
+    default:
+      // Default fallback
+      nextDue.setDate(nextDue.getDate() + interval)
       break
   }
   
@@ -344,14 +352,15 @@ async function createNextRecurringTask(originalTask) {
       }
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('tasks')
       .insert([nextTaskData])
+      .select()
 
     if (error) {
       console.error('Error creating next recurring task:', error)
     } else {
-      console.log(`Successfully created next instance for: ${originalTask.title}`)
+      console.log(`Successfully created next instance for: ${originalTask.title}`, data)
     }
   } catch (error) {
     console.error('Error in createNextRecurringTask:', error)
