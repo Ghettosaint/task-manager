@@ -86,13 +86,20 @@ export default function TaskManager() {
         }
       }
 
+      console.log('Creating task with data:', taskData)
+
       // Save to Supabase
       const { data, error } = await supabase
         .from('tasks')
         .insert([taskData])
         .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('Error creating task:', error)
+        throw error
+      }
+      
+      console.log('Task created successfully:', data)
       
       // Reload tasks from database
       await loadTasks()
@@ -104,6 +111,8 @@ export default function TaskManager() {
 
   function calculateNextDueDate(currentDue, type, interval, days) {
     const nextDue = new Date(currentDue)
+    
+    console.log('Calculating next due date:', { currentDue, type, interval, days })
     
     switch (type) {
       case 'daily':
@@ -125,16 +134,24 @@ export default function TaskManager() {
           let daysChecked = 0
           while (!foundNext && daysChecked < 14) { // Check up to 2 weeks ahead
             nextDue.setDate(nextDue.getDate() + 1)
-            const dayName = nextDue.toLocaleDateString('en-US', { weekday: 'lowercase' })
+            const dayName = nextDue.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
             if (days.includes(dayName)) {
               foundNext = true
             }
             daysChecked++
           }
+        } else {
+          // If no custom days specified, default to daily
+          nextDue.setDate(nextDue.getDate() + interval)
         }
+        break
+      default:
+        // Default fallback
+        nextDue.setDate(nextDue.getDate() + interval)
         break
     }
     
+    console.log('Next due date calculated:', nextDue.toISOString())
     return nextDue.toISOString()
   }
 
@@ -166,6 +183,7 @@ export default function TaskManager() {
       if (newStatus === 'completed') {
         const task = tasks.find(t => t.id === taskId)
         if (task && task.is_recurring && task.next_due_date) {
+          console.log('Creating next occurrence for completed recurring task:', task.title)
           await createNextRecurringTask(task)
         }
       }
@@ -182,6 +200,10 @@ export default function TaskManager() {
 
   async function createNextRecurringTask(originalTask) {
     try {
+      console.log('Creating next recurring task instance for:', originalTask.title)
+      
+      const recurrenceDays = originalTask.recurrence_days ? JSON.parse(originalTask.recurrence_days) : []
+      
       const nextTaskData = {
         title: originalTask.title,
         description: originalTask.description,
@@ -198,7 +220,6 @@ export default function TaskManager() {
       }
 
       // Calculate the next due date after this one
-      const recurrenceDays = originalTask.recurrence_days ? JSON.parse(originalTask.recurrence_days) : []
       nextTaskData.next_due_date = calculateNextDueDate(
         new Date(originalTask.next_due_date), 
         originalTask.recurrence_type, 
@@ -216,16 +237,24 @@ export default function TaskManager() {
         }
       }
 
-      const { error } = await supabase
+      console.log('Creating next task with data:', nextTaskData)
+
+      const { data, error } = await supabase
         .from('tasks')
         .insert([nextTaskData])
+        .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('Error creating next recurring task:', error)
+        throw error
+      }
+
+      console.log('Next recurring task created successfully:', data)
 
       // Reload tasks to show the new occurrence
       await loadTasks()
     } catch (error) {
-      console.error('Error creating next recurring task:', error)
+      console.error('Error in createNextRecurringTask:', error)
     }
   }
 
@@ -385,6 +414,30 @@ export default function TaskManager() {
     })
   }
 
+  function getRecurrenceDisplay(task) {
+    if (!task.is_recurring) return null
+    
+    let display = `Repeats every ${task.recurrence_interval} ${task.recurrence_type}`
+    
+    if (task.recurrence_type === 'custom' && task.recurrence_days) {
+      try {
+        const days = JSON.parse(task.recurrence_days)
+        if (days.length > 0) {
+          display += ` on ${days.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ')}`
+        }
+      } catch (e) {
+        console.error('Error parsing recurrence days:', e)
+      }
+    }
+    
+    if (task.recurrence_end_date) {
+      const endDate = new Date(task.recurrence_end_date)
+      display += ` until ${endDate.toLocaleDateString()}`
+    }
+    
+    return display
+  }
+
   // Function to handle settings button click
   function handleSettingsClick() {
     console.log('Settings button clicked!')
@@ -406,7 +459,7 @@ export default function TaskManager() {
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">My Task Manager</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Deyan's Task Manager</h1>
             <p className="text-sm text-gray-600">Stay organized and never miss important tasks</p>
           </div>
           <div className="flex items-center gap-2">
@@ -793,12 +846,14 @@ export default function TaskManager() {
                       {task.is_recurring && (
                         <div className="text-xs text-purple-600 mt-1 flex items-center gap-1">
                           <Repeat size={12} />
-                          <span>
-                            Repeats every {task.recurrence_interval} {task.recurrence_type}
-                            {task.recurrence_days && JSON.parse(task.recurrence_days).length > 0 && 
-                              ` on ${JSON.parse(task.recurrence_days).join(', ')}`
-                            }
-                          </span>
+                          <span>{getRecurrenceDisplay(task)}</span>
+                        </div>
+                      )}
+
+                      {task.next_due_date && task.is_recurring && (
+                        <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                          <Clock size={12} />
+                          <span>Next: {formatDate(task.next_due_date)}</span>
                         </div>
                       )}
                     </div>
@@ -821,17 +876,3 @@ export default function TaskManager() {
                     </div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Notification Settings Modal */}
-      <NotificationSettings
-        isOpen={showNotificationSettings}
-        onClose={() => setShowNotificationSettings(false)}
-      />
-    </div>
-  )
-}
