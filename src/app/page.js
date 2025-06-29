@@ -188,6 +188,7 @@ export default function TaskManager() {
         }
       }
 
+      // Update local state
       setTasks(tasks.map(task => 
         task.id === taskId 
           ? { ...task, status: newStatus }
@@ -278,6 +279,8 @@ export default function TaskManager() {
   }
 
   async function deleteTask(taskId) {
+    if (!confirm('Are you sure you want to delete this task?')) return
+    
     try {
       const { error } = await supabase
         .from('tasks')
@@ -362,18 +365,32 @@ export default function TaskManager() {
     }
   }
 
-  function getWeekDates(date) {
-    const startOfWeek = new Date(date)
-    const day = startOfWeek.getDay()
-    startOfWeek.setDate(startOfWeek.getDate() - day)
+  // Updated to get full month calendar
+  function getMonthDates(date) {
+    const year = date.getFullYear()
+    const month = date.getMonth()
     
+    // First day of the month
+    const firstDay = new Date(year, month, 1)
+    
+    // Last day of the month
+    const lastDay = new Date(year, month + 1, 0)
+    
+    // First day of the calendar (might be from previous month)
+    const startDate = new Date(firstDay)
+    startDate.setDate(startDate.getDate() - firstDay.getDay())
+    
+    // Generate all dates for the calendar grid
     const dates = []
-    for (let i = 0; i < 7; i++) {
-      const currentDate = new Date(startOfWeek)
-      currentDate.setDate(startOfWeek.getDate() + i)
-      dates.push(currentDate)
+    const currentDate = new Date(startDate)
+    
+    // Generate 6 weeks (42 days) to ensure full month view
+    for (let i = 0; i < 42; i++) {
+      dates.push(new Date(currentDate))
+      currentDate.setDate(currentDate.getDate() + 1)
     }
-    return dates
+    
+    return { dates, currentMonth: month, currentYear: year }
   }
 
   function getTasksForDate(date) {
@@ -391,9 +408,9 @@ export default function TaskManager() {
       })
   }
 
-  function navigateWeek(direction) {
+  function navigateMonth(direction) {
     const newDate = new Date(currentDate)
-    newDate.setDate(newDate.getDate() + (direction * 7))
+    newDate.setMonth(newDate.getMonth() + direction)
     setCurrentDate(newDate)
   }
 
@@ -417,17 +434,42 @@ export default function TaskManager() {
   function getRecurrenceDisplay(task) {
     if (!task.is_recurring) return null
     
-    let display = `Repeats every ${task.recurrence_interval} ${task.recurrence_type}`
+    let display = `Repeats every `
     
-    if (task.recurrence_type === 'custom' && task.recurrence_days) {
-      try {
-        const days = JSON.parse(task.recurrence_days)
-        if (days.length > 0) {
-          display += ` on ${days.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ')}`
+    if (task.recurrence_interval > 1) {
+      display += `${task.recurrence_interval} `
+    }
+    
+    switch (task.recurrence_type) {
+      case 'daily':
+        display += task.recurrence_interval === 1 ? 'day' : 'days'
+        break
+      case 'weekly':
+        display += task.recurrence_interval === 1 ? 'week' : 'weeks'
+        break
+      case 'monthly':
+        display += task.recurrence_interval === 1 ? 'month' : 'months'
+        break
+      case 'yearly':
+        display += task.recurrence_interval === 1 ? 'year' : 'years'
+        break
+      case 'custom':
+        if (task.recurrence_days) {
+          try {
+            const days = JSON.parse(task.recurrence_days)
+            if (days.length > 0) {
+              display = `Repeats on ${days.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ')}`
+            }
+          } catch (e) {
+            console.error('Error parsing recurrence days:', e)
+            display = 'Custom recurrence'
+          }
+        } else {
+          display = 'Custom recurrence'
         }
-      } catch (e) {
-        console.error('Error parsing recurrence days:', e)
-      }
+        break
+      default:
+        display = 'Recurring task'
     }
     
     if (task.recurrence_end_date) {
@@ -446,30 +488,33 @@ export default function TaskManager() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-lg">Loading your tasks...</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-lg text-gray-700">Loading your tasks...</div>
       </div>
     )
   }
 
   const sortedTasks = sortTasksByTime(tasks)
+  const { dates: monthDates, currentMonth, currentYear } = getMonthDates(currentDate)
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Deyan's Task Manager</h1>
-            <p className="text-sm text-gray-600">Stay organized and never miss important tasks</p>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              Deyan's Task Manager
+            </h1>
+            <p className="text-gray-600 mt-2">Stay organized and never miss important tasks</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="bg-white rounded-lg p-1 border shadow-sm flex">
+          <div className="flex items-center gap-3">
+            <div className="bg-white rounded-xl p-1 border shadow-sm flex">
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-3 py-2 rounded flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
                   viewMode === 'list' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-blue-600 text-white shadow-md' 
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
                 <List size={18} />
@@ -477,10 +522,10 @@ export default function TaskManager() {
               </button>
               <button
                 onClick={() => setViewMode('calendar')}
-                className={`px-3 py-2 rounded flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
                   viewMode === 'calendar' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-blue-600 text-white shadow-md' 
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
                 <Calendar size={18} />
@@ -490,7 +535,7 @@ export default function TaskManager() {
             
             <button 
               onClick={handleSettingsClick}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg border bg-white shadow-sm transition-colors"
+              className="p-3 text-gray-600 hover:text-gray-900 hover:bg-white/50 rounded-xl border bg-white/80 backdrop-blur-sm shadow-sm transition-all hover:shadow-md"
               title="Notification Settings"
             >
               <Settings size={24} />
@@ -498,14 +543,14 @@ export default function TaskManager() {
           </div>
         </div>
         
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="space-y-4">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 mb-6 border">
+          <div className="space-y-6">
             <input
               type="text"
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
               placeholder="What do you need to do?"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white/50"
             />
             
             <textarea
@@ -513,30 +558,30 @@ export default function TaskManager() {
               onChange={(e) => setNewDescription(e.target.value)}
               placeholder="Description (optional)"
               rows={2}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white/50"
             />
             
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Due Date & Time
                 </label>
                 <input
                   type="datetime-local"
                   value={newDueDate}
                   onChange={(e) => setNewDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                  className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white/50"
                 />
               </div>
               
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Priority
                 </label>
                 <select
                   value={newPriority}
                   onChange={(e) => setNewPriority(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                  className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white/50"
                 >
                   <option value={1}>Low</option>
                   <option value={2}>Medium</option>
@@ -545,27 +590,27 @@ export default function TaskManager() {
               </div>
             </div>
 
-            {/* Recurring Task Options */}
-            <div className="border-t pt-4">
-              <div className="flex items-center gap-2 mb-3">
+            {/* Enhanced Recurring Task Options */}
+            <div className="border-t border-gray-200 pt-6">
+              <div className="flex items-center gap-3 mb-4">
                 <input
                   type="checkbox"
                   id="recurring"
                   checked={isRecurring}
                   onChange={(e) => setIsRecurring(e.target.checked)}
-                  className="rounded"
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
                 />
-                <label htmlFor="recurring" className="flex items-center gap-1 text-sm font-medium text-gray-700">
-                  <Repeat size={16} />
+                <label htmlFor="recurring" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <Repeat size={18} className="text-purple-500" />
                   Make this a recurring task
                 </label>
               </div>
 
               {isRecurring && (
-                <div className="space-y-3 ml-6 p-3 bg-gray-50 rounded-lg">
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                <div className="space-y-4 ml-8 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl border border-purple-100">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Repeat every
                       </label>
                       <div className="flex gap-2">
@@ -574,12 +619,12 @@ export default function TaskManager() {
                           min="1"
                           value={recurrenceInterval}
                           onChange={(e) => setRecurrenceInterval(parseInt(e.target.value) || 1)}
-                          className="w-20 px-2 py-1 border border-gray-300 rounded text-gray-900"
+                          className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-purple-500"
                         />
                         <select
                           value={recurrenceType}
                           onChange={(e) => setRecurrenceType(e.target.value)}
-                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-gray-900"
+                          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-purple-500"
                         >
                           <option value="daily">Day(s)</option>
                           <option value="weekly">Week(s)</option>
@@ -590,22 +635,22 @@ export default function TaskManager() {
                       </div>
                     </div>
 
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         End date (optional)
                       </label>
                       <input
                         type="date"
                         value={recurrenceEndDate}
                         onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-gray-900"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-purple-500"
                       />
                     </div>
                   </div>
 
                   {recurrenceType === 'custom' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
                         Select days
                       </label>
                       <div className="flex gap-2 flex-wrap">
@@ -614,10 +659,10 @@ export default function TaskManager() {
                             key={day}
                             type="button"
                             onClick={() => handleRecurrenceDayToggle(day)}
-                            className={`px-3 py-1 text-xs rounded border ${
+                            className={`px-4 py-2 text-sm rounded-lg border transition-all ${
                               recurrenceDays.includes(day)
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-600'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-md'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-purple-600 hover:shadow-sm'
                             }`}
                           >
                             {day.charAt(0).toUpperCase() + day.slice(1, 3)}
@@ -626,20 +671,30 @@ export default function TaskManager() {
                       </div>
                     </div>
                   )}
+
+                  <div className="text-sm text-purple-600 bg-purple-50 p-3 rounded-lg">
+                    <strong>Preview:</strong> {getRecurrenceDisplay({
+                      is_recurring: true,
+                      recurrence_type: recurrenceType,
+                      recurrence_interval: recurrenceInterval,
+                      recurrence_days: recurrenceDays.length > 0 ? JSON.stringify(recurrenceDays) : null,
+                      recurrence_end_date: recurrenceEndDate
+                    }) || 'Configure your recurrence pattern above'}
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
                 id="notifications"
                 checked={notificationsEnabled}
                 onChange={(e) => setNotificationsEnabled(e.target.checked)}
-                className="rounded"
+                className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
               />
-              <label htmlFor="notifications" className="flex items-center gap-1 text-sm font-medium text-gray-700">
-                <Bell size={16} />
+              <label htmlFor="notifications" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Bell size={18} className="text-blue-500" />
                 Enable notifications for this task
               </label>
             </div>
@@ -647,7 +702,7 @@ export default function TaskManager() {
             <button
               onClick={addTask}
               disabled={!newTask.trim()}
-              className="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-xl"
             >
               <Plus size={20} />
               Add Task
@@ -656,52 +711,59 @@ export default function TaskManager() {
         </div>
 
         {viewMode === 'calendar' ? (
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="flex items-center justify-between p-4 border-b">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <button
-                onClick={() => navigateWeek(-1)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+                onClick={() => navigateMonth(-1)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <ChevronLeft size={20} />
+                <ChevronLeft size={24} />
               </button>
               
-              <h2 className="text-lg font-semibold">
-                {currentDate.toLocaleDateString('en-US', { 
+              <h2 className="text-2xl font-bold text-gray-900">
+                {new Date(currentYear, currentMonth).toLocaleDateString('en-US', { 
                   month: 'long', 
                   year: 'numeric' 
                 })}
               </h2>
               
               <button
-                onClick={() => navigateWeek(1)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+                onClick={() => navigateMonth(1)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <ChevronRight size={20} />
+                <ChevronRight size={24} />
               </button>
             </div>
 
             <div className="grid grid-cols-7 gap-0">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="p-3 border-b border-r text-center font-medium text-gray-600 bg-gray-50">
+                <div key={day} className="p-4 border-b border-r border-gray-200 text-center font-semibold text-gray-700 bg-gray-50">
                   {day}
                 </div>
               ))}
               
-              {getWeekDates(currentDate).map((date, index) => {
+              {monthDates.map((date, index) => {
                 const dayTasks = getTasksForDate(date)
                 const isToday = date.toDateString() === new Date().toDateString()
+                const isCurrentMonth = date.getMonth() === currentMonth
                 
                 return (
-                  <div key={index} className={`min-h-[200px] p-2 border-r border-b ${isToday ? 'bg-blue-50' : ''}`}>
-                    <div className={`text-sm font-medium mb-2 ${isToday ? 'text-blue-600' : 'text-gray-900'}`}>
+                  <div key={index} className={`min-h-[120px] p-2 border-r border-b border-gray-200 ${
+                    isToday ? 'bg-blue-50' : 
+                    isCurrentMonth ? 'bg-white' : 'bg-gray-50'
+                  }`}>
+                    <div className={`text-sm font-medium mb-2 ${
+                      isToday ? 'text-blue-600 font-bold' : 
+                      isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
+                    }`}>
                       {date.getDate()}
                     </div>
                     
                     <div className="space-y-1">
-                      {dayTasks.map(task => (
+                      {dayTasks.slice(0, 3).map(task => (
                         <div
                           key={task.id}
-                          className={`text-xs p-2 rounded border-l-2 ${
+                          className={`text-xs p-2 rounded-lg border-l-2 cursor-pointer hover:shadow-sm transition-all ${
                             task.status === 'completed'
                               ? 'bg-green-50 border-green-500 text-green-700'
                               : isOverdue(task.due_date)
@@ -709,14 +771,14 @@ export default function TaskManager() {
                               : 'bg-white border-blue-500 text-gray-900'
                           }`}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={() => toggleTask(task.id, task.status)}
                                 className={`w-3 h-3 rounded-full border flex items-center justify-center ${
                                   task.status === 'completed'
                                     ? 'bg-green-600 border-green-600 text-white'
-                                    : 'border-gray-300'
+                                    : 'border-gray-300 hover:border-green-500'
                                 }`}
                               >
                                 {task.status === 'completed' && <Check size={8} />}
@@ -731,21 +793,21 @@ export default function TaskManager() {
                                 className="cursor-pointer"
                               >
                                 {task.notifications_enabled ? (
-                                  <Bell size={10} className="text-blue-500" />
+                                  <Bell size={8} className="text-blue-500" />
                                 ) : (
-                                  <BellOff size={10} className="text-gray-400" />
+                                  <BellOff size={8} className="text-gray-400" />
                                 )}
                               </button>
                               <button
                                 onClick={() => deleteTask(task.id)}
                                 className="text-gray-400 hover:text-red-500"
                               >
-                                <Trash2 size={10} />
+                                <Trash2 size={8} />
                               </button>
                             </div>
                           </div>
                           
-                          <div className={task.status === 'completed' ? 'line-through' : ''}>
+                          <div className={`font-medium ${task.status === 'completed' ? 'line-through' : ''}`}>
                             {task.title}
                           </div>
                           
@@ -756,6 +818,12 @@ export default function TaskManager() {
                           )}
                         </div>
                       ))}
+                      
+                      {dayTasks.length > 3 && (
+                        <div className="text-xs text-gray-500 text-center py-1">
+                          +{dayTasks.length - 3} more
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -763,43 +831,45 @@ export default function TaskManager() {
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-gray-900">Tasks (sorted by time)</h2>
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
             
             {sortedTasks.length === 0 ? (
-              <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-                No tasks yet. Add one above to get started!
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-8 text-center text-gray-500 border">
+                <div className="text-6xl mb-4">📝</div>
+                <h3 className="text-lg font-medium mb-2">No tasks yet</h3>
+                <p>Add your first task above to get started!</p>
               </div>
             ) : (
               sortedTasks.map((task) => (
                 <div
                   key={task.id}
-                  className={`bg-white rounded-lg shadow-sm p-4 border-l-4 ${
+                  className={`bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border-l-4 transition-all hover:shadow-xl ${
                     task.status === 'completed' 
                       ? 'opacity-60 border-green-500' 
                       : isOverdue(task.due_date)
                       ? 'border-red-500'
                       : isDueToday(task.due_date)
                       ? 'border-yellow-500'
-                      : 'border-gray-200'
+                      : 'border-blue-500'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <button
                       onClick={() => toggleTask(task.id, task.status)}
-                      className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                         task.status === 'completed'
                           ? 'bg-green-600 border-green-600 text-white'
-                          : 'border-gray-300 hover:border-green-600'
+                          : 'border-gray-300 hover:border-green-600 hover:bg-green-50'
                       }`}
                     >
                       {task.status === 'completed' && <Check size={16} />}
                     </button>
                     
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3 mb-2">
                         <span
-                          className={`${
+                          className={`text-lg font-medium ${
                             task.status === 'completed'
                               ? 'line-through text-gray-500'
                               : 'text-gray-900'
@@ -809,22 +879,29 @@ export default function TaskManager() {
                         </span>
                         
                         {task.is_recurring && (
-                          <Repeat size={16} className="text-purple-500" title="Recurring task" />
+                          <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                            <Repeat size={12} />
+                            Recurring
+                          </div>
                         )}
                         
                         {task.priority > 1 && (
-                          <span className={`text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                            {getPriorityLabel(task.priority)}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            task.priority === 3 ? 'bg-red-100 text-red-700' :
+                            task.priority === 2 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {getPriorityLabel(task.priority)} Priority
                           </span>
                         )}
                       </div>
                       
                       {task.description && (
-                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                        <p className="text-gray-600 mb-3">{task.description}</p>
                       )}
                       
                       {task.due_date && (
-                        <div className={`flex items-center gap-1 text-sm mt-1 ${
+                        <div className={`flex items-center gap-2 text-sm mb-2 ${
                           isOverdue(task.due_date) && task.status !== 'completed'
                             ? 'text-red-600'
                             : isDueToday(task.due_date) && task.status !== 'completed'
@@ -832,47 +909,66 @@ export default function TaskManager() {
                             : 'text-gray-500'
                         }`}>
                           {isOverdue(task.due_date) && task.status !== 'completed' ? (
-                            <AlertTriangle size={14} />
+                            <AlertTriangle size={16} />
                           ) : (
-                            <Calendar size={14} />
+                            <Calendar size={16} />
                           )}
                           <span>{formatDate(task.due_date)}</span>
                           {isOverdue(task.due_date) && task.status !== 'completed' && (
-                            <span className="font-medium">- Overdue</span>
+                            <span className="font-medium bg-red-100 px-2 py-1 rounded text-red-700">Overdue</span>
                           )}
                         </div>
                       )}
 
                       {task.is_recurring && (
-                        <div className="text-xs text-purple-600 mt-1 flex items-center gap-1">
-                          <Repeat size={12} />
+                        <div className="text-sm text-purple-600 mb-2 flex items-center gap-2 bg-purple-50 px-3 py-2 rounded-lg">
+                          <Repeat size={14} />
                           <span>{getRecurrenceDisplay(task)}</span>
                         </div>
                       )}
 
                       {task.next_due_date && task.is_recurring && (
-                        <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
-                          <Clock size={12} />
-                          <span>Next: {formatDate(task.next_due_date)}</span>
+                        <div className="text-sm text-blue-600 flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-lg">
+                          <Clock size={14} />
+                          <span>Next occurrence: {formatDate(task.next_due_date)}</span>
                         </div>
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <button
                         onClick={() => toggleNotifications(task.id, task.notifications_enabled)}
-                        className="p-1 text-gray-400 hover:text-blue-600"
+                        className={`p-2 rounded-lg transition-all ${
+                          task.notifications_enabled 
+                            ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' 
+                            : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                        }`}
                         title={task.notifications_enabled ? 'Disable notifications' : 'Enable notifications'}
                       >
-                        {task.notifications_enabled ? <Bell size={18} /> : <BellOff size={18} />}
+                        {task.notifications_enabled ? <Bell size={20} /> : <BellOff size={20} />}
                       </button>
                       
                       <button
                         onClick={() => deleteTask(task.id)}
-                        className="flex-shrink-0 p-1 text-gray-400 hover:text-red-600"
+                        className="flex-shrink-0 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                       >
-                        <Trash2 size={18} />
+                        <Trash2 size={20} />
                       </button>
                     </div>
                   </div>
                 </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {showNotificationSettings && (
+          <NotificationSettings
+            isOpen={showNotificationSettings}
+            onClose={() => setShowNotificationSettings(false)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
